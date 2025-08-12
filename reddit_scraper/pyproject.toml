@@ -1,0 +1,26 @@
+[project]
+name = "reddit-scraper"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Your Name",email = "you@example.com"}
+]
+readme = "README.md"
+requires-python = ">=3.9,<4.0"
+dependencies = [
+    "beautifulsoup4 (>=4.13.4,<5.0.0)",
+    "requests (>=2.32.4,<3.0.0)",
+    "praw (>=7.8.1,<8.0.0)",
+    "env (>=0.1.0,<0.2.0)",
+    "python-dotenv>=0.19.0,<1.0.0",
+    "supabase (>=2.18.0,<3.0.0)",
+
+]
+
+[tool.poetry]
+packages = [{include = "reddit_scraper", from = "src"}]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
