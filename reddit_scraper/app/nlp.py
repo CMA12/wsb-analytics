@@ -1,5 +1,8 @@
 # regex for filtering irrelevant posts and comments
 import re
+from app.symbols import get_symbol_store
+
+STORE = get_symbol_store()
 
 #load blacklist / whitelist / WSB jargon abbr.
 def load_set(path: str) -> set:
@@ -56,7 +59,7 @@ def extract_tickers(text: str):
     # $TICKER (precise)
     for m in DOLLAR_TICKER_RE.finditer(text):
         t = m.group()[1:].upper()
-        if t in TICKERS and t not in STOP:
+        if STORE.is_valid(t) and t not in STOP:
             cues = _nearby_cues(lower, m.start(), m.end())
             conf = 0.90 + min(cues * 0.02, 0.10)  # 0.90–1.00
             key = (t, m.start(), m.end())
@@ -70,7 +73,7 @@ def extract_tickers(text: str):
     # bare uppercase (need at least one cue)
     for m in UPPER_TICKER_RE.finditer(text):
         t = m.group().upper()
-        if t in TICKERS and t not in STOP:
+        if STORE.is_valid(t) and t not in STOP:
             cues = _nearby_cues(lower, m.start(), m.end())
             if cues > 0:
                 conf = 0.60 + min(cues * 0.03, 0.15)  # 0.60–0.75
