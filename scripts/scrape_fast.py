@@ -13,7 +13,7 @@ import time
 
 load_dotenv()
 
-def fast_scrape_subreddit(sub_name="wallstreetbets", limit=5):
+def fast_scrape_subreddit(sub_name="wallstreetbets", limit=3):
     """Fast scraping without LLM analysis - just collect raw data"""
     
     print(f"🚀 Starting FAST SCRAPE mode for r/{sub_name}")
