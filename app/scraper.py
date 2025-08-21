@@ -17,7 +17,7 @@ reddit = praw.Reddit(
 def loop_subreddit(sub_name):
     sub = reddit.subreddit(sub_name)
 
-    for submission in sub.top(time_filter='day',limit=5):
+    for submission in sub.top(time_filter='day',limit=3):
         # map_submission(submission)
         # map_comments(submission)
         map_submission_and_comments(submission)

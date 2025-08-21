@@ -38,9 +38,19 @@ class SymbolStore:
     def load_from_cache(self, path: Path) -> None:
         if not path.exists():
             return
-        data = json.loads(path.read_text(encoding="utf-8"))
-        self._symbols = set(x.upper() for x in data.get("symbols", []))
-        self.updated_at = data.get("updated_at")
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        # accept both {"symbols":[...]} and [...] formats
+        if isinstance(raw, dict):
+            symbols = raw.get("symbols", [])
+            self.updated_at = raw.get("updated_at")
+        elif isinstance(raw, list):
+            symbols = raw
+            self.updated_at = None
+        else:
+            symbols = []
+            self.updated_at = None
+        self._symbols = set(s.strip().upper() for s in symbols if isinstance(s, str))
+
 
     def save_cache(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

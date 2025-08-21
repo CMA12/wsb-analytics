@@ -13,7 +13,7 @@ url: str = os.environ.get("SUPABASE_URL")
 key: str = os.environ.get("SUPABASE_KEY")
 supabase: Client = create_client(url, key)
 
-def map_submission(s):
+def map_submission(s, skip_analysis=False):
     row = {
         "reddit_id": s.id,                               # <-- conflict key
         "title": (s.title or "").strip(),
@@ -38,15 +38,20 @@ def map_submission(s):
         pass
 
     supabase.table("posts").upsert(row, on_conflict="reddit_id").execute()
-    # Link tickers from the post's title + body
-    post_text = f"{row.get('title','')}\n{row.get('text','')}"
-    try:
-        map_tickers(supabase, kind="post", content_reddit_id=row["reddit_id"], text=post_text)
-    except Exception as e:
-        print(f"[map_tickers post] failed for {row['reddit_id']}: {e}")
+    
+    # Optionally skip LLM analysis during fast scraping
+    if not skip_analysis:
+        # Link tickers from the post's title + body
+        post_text = f"{row.get('title','')}\n{row.get('text','')}"
+        try:
+            map_tickers(supabase, kind="post", content_reddit_id=row["reddit_id"], text=post_text)
+        except Exception as e:
+            print(f"[map_tickers post] failed for {row['reddit_id']}: {e}")
+    else:
+        print(f"[FAST SCRAPE] Skipped analysis for post {row['reddit_id']}")
 
 
-def map_comments(submission, batch_size: int = 1000) -> int:
+def map_comments(submission, batch_size: int = 1000, skip_analysis=False) -> int:
     
     # Ensure the forest is expanded (pulls in MoreComments)
     submission.comments.replace_more(limit=None)
@@ -62,21 +67,24 @@ def map_comments(submission, batch_size: int = 1000) -> int:
         row = _comment_to_row(c, post_reddit_id)
         if row.get("reddit_id"):
             rows.append(row)
-            try:
-                found = map_tickers(
-                    supabase, kind="comment",
-                    content_reddit_id=row["reddit_id"],
-                    text=row.get("body","")
-                )
-                # If none found, try inheritance from parent
-                if not found and row.get("parent_reddit_id"):
-                    inherit_parent_tickers(
-                        supabase,
-                        parent_reddit_id=row["parent_reddit_id"],
-                        child_reddit_id=row["reddit_id"]
+            
+            # Optionally skip LLM analysis during fast scraping
+            if not skip_analysis:
+                try:
+                    found = map_tickers(
+                        supabase, kind="comment",
+                        content_reddit_id=row["reddit_id"],
+                        text=row.get("body","")
                     )
-            except Exception as e:
-                print(f"[map_tickers comment] failed for {row['reddit_id']}: {e}")
+                    # If none found, try inheritance from parent
+                    if not found and row.get("parent_reddit_id"):
+                        inherit_parent_tickers(
+                            supabase,
+                            parent_reddit_id=row["parent_reddit_id"],
+                            child_reddit_id=row["reddit_id"]
+                        )
+                except Exception as e:
+                    print(f"[map_tickers comment] failed for {row['reddit_id']}: {e}")
 
 
 
@@ -89,6 +97,9 @@ def map_comments(submission, batch_size: int = 1000) -> int:
         supabase.table("comments").upsert(chunk, on_conflict="reddit_id").execute()
         total += len(chunk)
 
+    if skip_analysis:
+        print(f"[FAST SCRAPE] Stored {total} comments without analysis")
+    
     return total
 
 def inherit_parent_tickers(supabase, parent_reddit_id: str, child_reddit_id: str) -> int:
@@ -144,7 +155,7 @@ def map_tickers(supabase, kind: str, content_reddit_id: str, text: str) -> List[
     rows = []
     for it in best.values():
         start, end = it["span"]
-        rows.append({
+        row_data = {
             "kind": kind,
             "content_reddit_id": content_reddit_id,
             "ticker": it["ticker"],
@@ -152,12 +163,37 @@ def map_tickers(supabase, kind: str, content_reddit_id: str, text: str) -> List[
             "span_start": int(start),
             "span_end": int(end),
             "method": it["method"],
-        })
+        }
+        
+        # Add new fields from LLM if available
+        if "hype_score" in it:
+            row_data["hype_score"] = float(it["hype_score"])
+        if "company_name" in it:
+            row_data["company_name"] = it["company_name"]
+            
+        rows.append(row_data)
 
-    # One upsert, no duplicate keys in the same batch now
-    supabase.table("content_tickers").upsert(
-        rows, on_conflict="kind,content_reddit_id,ticker"
-    ).execute()
+    # Try upsert with new fields first, fall back to basic fields if schema doesn't support them
+    try:
+        supabase.table("content_tickers").upsert(
+            rows, on_conflict="kind,content_reddit_id,ticker"
+        ).execute()
+    except Exception as e:
+        if "column" in str(e).lower() and ("company_name" in str(e) or "hype_score" in str(e)):
+            print(f"[DB] Schema migration needed - falling back to basic ticker storage")
+            # Retry with only basic fields (remove the new LLM fields)
+            basic_rows = []
+            for row in rows:
+                basic_row = {k: v for k, v in row.items() if k not in ["hype_score", "company_name"]}
+                basic_rows.append(basic_row)
+            
+            supabase.table("content_tickers").upsert(
+                basic_rows, on_conflict="kind,content_reddit_id,ticker"
+            ).execute()
+            print(f"[DB] Successfully stored {len(basic_rows)} tickers without LLM metadata")
+        else:
+            # Re-raise if it's a different error
+            raise e
 
     return rows
 

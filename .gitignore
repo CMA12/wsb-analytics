@@ -1,2 +1,5 @@
 .env
 .DS_store
+
+nasdaq_tickers.csv
+otc_tickers.csv
